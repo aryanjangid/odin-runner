@@ -4,7 +4,6 @@ import { test } from "node:test";
 
 import {
   buildCallbackPayload,
-  buildPrBody,
   sanitizeBranchName,
   selectChecks,
   signBody,
@@ -70,6 +69,8 @@ test("sanitizeBranchName: lowercases, collapses, and trims (fallback only)", () 
   assert.equal(sanitizeBranchName("--X--", "1", "1"), "odin/x-1-1");
 });
 
-test("buildPrBody: includes the issue id", () => {
-  assert.match(buildPrBody("OPS-12"), /- Issue: OPS-12/);
+test("buildCallbackPayload: extra (branch/base) is merged into the payload", () => {
+  const p = buildCallbackPayload({ GITHUB_REPOSITORY: "a/b", MODE: "implement" }, {}, { branch: "odin/x", base: "main" });
+  assert.equal(p.branch, "odin/x");
+  assert.equal(p.base, "main");
 });

@@ -84,16 +84,26 @@ follows it. There are no naming inputs to set.
 | --- | --- | --- |
 | Prepare | `pre.mjs` | validate prompt → continuation checkout → install deps |
 | Run Claude | `anthropics/claude-code-action@v1` | the actual Claude run (stock upstream) |
-| Finalize | `post.mjs` | read result → branch on mode → checks gate → commit/push/PR → report |
+| Finalize | `post.mjs` | read result → branch on mode → checks gate → commit/**push branch** → report to Odin |
 | Report failure | `lib/report-failure.mjs` | `if: failure()` catch-all → tell Odin "failed" |
 
 Mode handling (from `client_payload.mode`):
 
 - `needs_clarification` → report, no PR
 - `inspect` / `review` / `check` (read-only) → report answer/findings/checks, no PR
-- `implement` / `revise` (write) → enforced checks gate → commit/push → open or
-  update a draft PR. A continuation that's already applied is a graceful no-op,
-  not a failure.
+- `implement` / `revise` (write) → enforced checks gate → commit/**push the branch**.
+  A continuation that's already applied is a graceful no-op, not a failure.
+
+### Who opens the PR
+
+The runner **only pushes the branch** (needs just `contents: write`, which the
+workflow's `permissions:` block grants). **Odin's server opens/updates the draft
+PR** with the GitHub App installation token, in the result callback. This is
+deliberate: creating a PR via the **App** isn't subject to the repo's *"Allow
+GitHub Actions to create and approve pull requests"* setting — so onboarding a new
+repo/org needs only the App installed, no Actions permission to flip. The runner
+reports the pushed `branch` + `base`; the agent's `prTitle`/`prBody` ride along in
+the result.
 
 ## Design notes
 

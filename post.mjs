@@ -8,7 +8,6 @@ import { rmSync } from "node:fs";
 
 import { runShell } from "./lib/exec.mjs";
 import {
-  buildPrBody,
   readResult,
   sendCallback,
   selectChecks,
@@ -22,7 +21,6 @@ import {
   hasChanges,
   pushBranch,
 } from "./lib/git.mjs";
-import { createDraftPr, findOpenPr } from "./lib/pr.mjs";
 
 const env = process.env;
 const readOnly = env.READ_ONLY === "true";
@@ -49,26 +47,32 @@ async function main() {
     return;
   }
 
-  // 3. Write modes: enforced quality gate before the PR.
+  // 3. Write modes: enforced quality gate, then commit + push. Odin's server opens
+  // the draft PR with the GitHub App token (so PR creation never depends on the
+  // repo's Actions "create and approve pull requests" permission).
   await runChecks();
 
   // Drop Odin's scratch dir so it never lands in the PR and doesn't mask the
   // no-change check below (target repos don't gitignore .odin/).
   rmSync(".odin", { recursive: true, force: true });
 
+  const base = await defaultBranch();
+
   if (!(await hasChanges())) {
-    // A follow-up already applied is a graceful no-op, not a failure — reuse the PR.
+    // A follow-up already applied is a graceful no-op, not a failure — Odin keeps
+    // the existing PR for the continuation branch.
     if (env.CONTINUATION_BRANCH) {
-      const prUrl = await findOpenPr(env.CONTINUATION_BRANCH);
       console.log("Continuation already satisfied — no file changes needed.");
-      await sendCallback({ ...env, STATUS: "completed", PR_URL: prUrl }, result);
+      await sendCallback({ ...env, STATUS: "completed" }, result, {
+        branch: env.CONTINUATION_BRANCH,
+        base,
+      });
       return;
     }
     throw new Error("Claude finished without file changes.");
   }
 
   await configIdentity();
-  const base = await defaultBranch();
 
   // Branch: a follow-up reuses its branch; a fresh run prefers Linear's own branch
   // name (so the PR auto-links), else a generated fallback.
@@ -82,30 +86,16 @@ async function main() {
     await checkoutNewBranch(branch);
   }
 
-  // Commit message / PR title / PR body: Claude authors them following the repo's
-  // CLAUDE.md (via .odin/result.json); otherwise a simple default.
-  const fallback = `${env.LINEAR_ISSUE_ID}: ${env.LINEAR_ISSUE_TITLE}`;
-  const commitMessage = text(result.commitMessage) || fallback;
-  const prTitle = text(result.prTitle) || fallback;
-  const prBody = text(result.prBody) || buildPrBody(env.LINEAR_ISSUE_ID);
+  // Commit message: Claude authors it (.odin/result.json) following CLAUDE.md, else
+  // a default. The PR title/body ride along in `result` for the server to apply.
+  const commitMessage =
+    text(result.commitMessage) || `${env.LINEAR_ISSUE_ID}: ${env.LINEAR_ISSUE_TITLE}`;
 
   await commitAll(commitMessage);
   await pushBranch(branch);
 
-  // A continuation already has an open PR on its branch — reuse it; a fresh run
-  // finds none, so it opens a draft PR.
-  let prUrl = await findOpenPr(branch);
-  if (!prUrl) {
-    prUrl = await createDraftPr({
-      base,
-      head: branch,
-      title: prTitle,
-      body: prBody,
-      tmpDir: env.RUNNER_TEMP || ".",
-    });
-  }
-
-  await sendCallback({ ...env, STATUS: "completed", PR_URL: prUrl }, result);
+  // Report the pushed branch; Odin's server opens/updates the draft PR.
+  await sendCallback({ ...env, STATUS: "completed" }, result, { branch, base });
 }
 
 // Enforced build/lint/test gate, mirroring the persistent worker. Runs every
