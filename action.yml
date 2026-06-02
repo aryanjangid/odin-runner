@@ -1,0 +1,128 @@
+name: "Odin Runner"
+description: >-
+  Run an Odin-dispatched Claude Code job: install deps, run Claude, gate on the
+  repo's checks, open/update a draft PR, and report the outcome back to Odin.
+author: "Odin"
+
+inputs:
+  anthropic_api_key:
+    description: "Anthropic API key for Claude."
+    required: true
+  callback_secret:
+    description: >-
+      Shared secret used to HMAC-sign the result callback to Odin (must match
+      Odin's ODIN_CALLBACK_SECRET).
+    required: true
+  callback_url:
+    description: "Odin result callback URL. Defaults to the hosted orchestrator."
+    required: false
+    default: "https://odin-orchestrator.up.railway.app/api/agent-result"
+  # This repo's commands. Each OVERRIDES what Odin sends from the route's project
+  # memory; left blank, it falls back to the dispatch, and if that's blank too the
+  # step is skipped. install runs before Claude; lint/build/test are the pre-PR gate.
+  install:
+    description: "Install command, e.g. 'npm ci'. Overrides the dispatch; skipped if blank."
+    required: false
+    default: ""
+  lint:
+    description: "Lint command for the pre-PR gate. Overrides the dispatch; skipped if blank."
+    required: false
+    default: ""
+  build:
+    description: "Build command for the pre-PR gate. Overrides the dispatch; skipped if blank."
+    required: false
+    default: ""
+  test:
+    description: "Test command for the pre-PR gate. Overrides the dispatch; skipped if blank."
+    required: false
+    default: ""
+  # Per-repo naming style. Templates support {{issue_id}}, {{issue_title}}, {{job_id}}.
+  branch_prefix:
+    description: "Prefix for new branches, used as-is (e.g. 'odin/', 'feature/', 'claude-')."
+    required: false
+    default: "odin/"
+  commit_message:
+    description: "Commit message template. Placeholders: {{issue_id}}, {{issue_title}}, {{job_id}}."
+    required: false
+    default: "{{issue_id}}: {{issue_title}}"
+  pr_title:
+    description: "PR title template. Placeholders: {{issue_id}}, {{issue_title}}, {{job_id}}."
+    required: false
+    default: "{{issue_id}}: {{issue_title}}"
+
+runs:
+  using: "composite"
+  steps:
+    # Validate the prompt, check out the continuation branch, and install deps.
+    - name: Prepare
+      shell: bash
+      run: node "${{ github.action_path }}/pre.mjs"
+      env:
+        AGENT_PROMPT: ${{ github.event.client_payload.agent_prompt || github.event.inputs.agent_prompt }}
+        CONTINUATION_BRANCH: ${{ github.event.client_payload.continuation_branch || '' }}
+        # Your odin.yml input wins; else the dispatch (project memory); else skip.
+        INSTALL_CMD: ${{ inputs.install || github.event.client_payload.commands.install || '' }}
+
+    # The actual Claude run stays on the stock upstream action.
+    - name: Run Claude Code
+      uses: anthropics/claude-code-action@v1
+      with:
+        anthropic_api_key: ${{ inputs.anthropic_api_key }}
+        github_token: ${{ github.token }}
+        # Odin dispatches as a GitHub App (a Bot actor), which claude-code-action
+        # blocks by default. Allow all bots since only Odin can fire this event.
+        allowed_bots: "*"
+        prompt: |
+          ${{ github.event.client_payload.agent_prompt || github.event.inputs.agent_prompt }}
+        # Model / max-turns / tools come from the workspace's Odin Agent settings
+        # (the `agent` object in the dispatch). The values below are only the
+        # fallback for manual workflow_dispatch runs.
+        claude_args: |
+          --model ${{ github.event.client_payload.agent.model || 'claude-sonnet-4-6' }}
+          --max-turns ${{ github.event.client_payload.agent.max_turns || 40 }}
+          --allowedTools "${{ github.event.client_payload.agent.allowed_tools || 'Read,Glob,Grep,LS,Edit,MultiEdit,Write,Bash' }}"
+          --disallowedTools "${{ github.event.client_payload.agent.disallowed_tools || 'Task,TaskOutput,KillTask,WebFetch,Bash(curl *),Bash(wget *),Bash(rm *),Bash(git push *),Bash(gh *)' }}"
+
+    # Read the result, run the checks gate, open/update the PR, and report back.
+    - name: Finalize
+      shell: bash
+      run: node "${{ github.action_path }}/post.mjs"
+      env:
+        GH_TOKEN: ${{ github.token }}
+        CALLBACK_URL: ${{ inputs.callback_url || 'https://odin-orchestrator.up.railway.app/api/agent-result' }}
+        CALLBACK_SECRET: ${{ inputs.callback_secret }}
+        JOB_ID: ${{ github.event.client_payload.job_id || '' }}
+        LINEAR_ISSUE_ID: ${{ github.event.client_payload.linear_issue_id || github.event.inputs.linear_issue_id }}
+        LINEAR_ISSUE_TITLE: ${{ github.event.client_payload.linear_issue_title || github.event.inputs.linear_issue_title }}
+        CONTINUATION_BRANCH: ${{ github.event.client_payload.continuation_branch || '' }}
+        # Linear's canonical branch name for fresh runs (so the PR auto-links).
+        LINEAR_BRANCH_NAME: ${{ github.event.client_payload.linear_branch_name || '' }}
+        MODE: ${{ github.event.client_payload.mode || 'implement' }}
+        # Read-only modes (inspect/review/check) investigate and report, no PR.
+        READ_ONLY: ${{ contains(fromJSON('["inspect","review","check"]'), github.event.client_payload.mode) }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}
+        # Per-repo naming style (defaults applied by the action inputs).
+        BRANCH_PREFIX: ${{ inputs.branch_prefix }}
+        COMMIT_MESSAGE: ${{ inputs.commit_message }}
+        PR_TITLE: ${{ inputs.pr_title }}
+        # Build/lint/test gate. Your odin.yml input wins; else the dispatch
+        # (project memory); else the check is skipped.
+        LINT_CMD: ${{ inputs.lint || github.event.client_payload.commands.lint || '' }}
+        BUILD_CMD: ${{ inputs.build || github.event.client_payload.commands.build || '' }}
+        TEST_CMD: ${{ inputs.test || github.event.client_payload.commands.test || '' }}
+
+    # Any failure above (Prepare, Claude, checks, push) tells Odin so the session
+    # resolves instead of hanging. Single callback — post.mjs never self-reports.
+    - name: Report failure to Odin
+      if: failure()
+      shell: bash
+      run: node "${{ github.action_path }}/lib/report-failure.mjs"
+      env:
+        CALLBACK_URL: ${{ inputs.callback_url || 'https://odin-orchestrator.up.railway.app/api/agent-result' }}
+        CALLBACK_SECRET: ${{ inputs.callback_secret }}
+        JOB_ID: ${{ github.event.client_payload.job_id || '' }}
+        LINEAR_ISSUE_ID: ${{ github.event.client_payload.linear_issue_id || github.event.inputs.linear_issue_id }}
+        MODE: ${{ github.event.client_payload.mode || 'implement' }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}

@@ -1,0 +1,10 @@
+{
+  "name": "odin-runner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "GitHub Action that runs an Odin-dispatched Claude Code job and reports the outcome back to Odin.",
+  "scripts": {
+    "test": "node --test"
+  }
+}

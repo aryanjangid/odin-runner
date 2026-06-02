@@ -1,0 +1,88 @@
+import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
+import { test } from "node:test";
+
+import {
+  buildCallbackPayload,
+  buildPrBody,
+  renderTemplate,
+  sanitizeBranchName,
+  selectChecks,
+  signBody,
+} from "../lib/odin.mjs";
+
+test("buildCallbackPayload: transport fields override what the agent wrote", () => {
+  const env = {
+    GITHUB_REPOSITORY: "acme/widgets",
+    MODE: "implement",
+    STATUS: "completed",
+    PR_URL: "https://github.com/acme/widgets/pull/7",
+    JOB_ID: "job-1",
+    LINEAR_ISSUE_ID: "OPS-12",
+    RUN_ID: "99",
+    RUN_ATTEMPT: "1",
+  };
+  const result = { status: "needs_clarification", summary: "agent text", answer: "hi" };
+  const payload = buildCallbackPayload(env, result);
+
+  assert.equal(payload.status, "completed"); // env wins over result
+  assert.equal(payload.pullRequestUrl, "https://github.com/acme/widgets/pull/7");
+  assert.deepEqual(payload.repository, { owner: "acme", repo: "widgets" });
+  assert.equal(payload.jobId, "job-1");
+  assert.equal(payload.linearIssueId, "OPS-12");
+  assert.deepEqual(payload.workflowRun, { id: "99", attempt: "1" });
+  assert.equal(payload.answer, "hi"); // agent fields still forwarded
+});
+
+test("buildCallbackPayload: read-only result falls back to the agent's status", () => {
+  const env = { GITHUB_REPOSITORY: "a/b", MODE: "review" };
+  const payload = buildCallbackPayload(env, { status: "completed", findings: [{ note: "x" }] });
+  assert.equal(payload.status, "completed");
+  assert.equal(payload.mode, "review");
+  assert.equal(payload.findings.length, 1);
+});
+
+test("buildCallbackPayload: QUESTIONS env parses to an array when result has none", () => {
+  const env = { GITHUB_REPOSITORY: "a/b", QUESTIONS: '["why?","where?"]' };
+  const payload = buildCallbackPayload(env, {});
+  assert.deepEqual(payload.questions, ["why?", "where?"]);
+});
+
+test("signBody: matches a known HMAC-SHA256 and is prefixed", () => {
+  const expected = `sha256=${createHmac("sha256", "secret").update("body").digest("hex")}`;
+  assert.equal(signBody("body", "secret"), expected);
+  assert.match(signBody("body", "secret"), /^sha256=[0-9a-f]{64}$/);
+});
+
+test("signBody: different secrets produce different signatures", () => {
+  assert.notEqual(signBody("body", "s1"), signBody("body", "s2"));
+});
+
+test("selectChecks: keeps only configured, non-blank commands", () => {
+  const checks = selectChecks({ lint: "npm run lint", build: "", test: "  " });
+  assert.deepEqual(checks, [{ name: "lint", cmd: "npm run lint" }]);
+  assert.deepEqual(selectChecks({}), []);
+  assert.deepEqual(selectChecks(), []);
+});
+
+test("sanitizeBranchName: lowercases, collapses, and trims", () => {
+  assert.equal(sanitizeBranchName("OPS-12", "99", "1"), "odin/ops-12-99-1");
+  assert.equal(sanitizeBranchName("Feat/AB 3!!", "7", "2"), "odin/feat-ab-3-7-2");
+  assert.equal(sanitizeBranchName("--X--", "1", "1"), "odin/x-1-1");
+});
+
+test("sanitizeBranchName: honors a custom prefix exactly (slash or dash)", () => {
+  assert.equal(sanitizeBranchName("OPS-12", "9", "1", "feature/"), "feature/ops-12-9-1");
+  assert.equal(sanitizeBranchName("OPS-12", "9", "1", "claude-"), "claude-ops-12-9-1");
+});
+
+test("renderTemplate: fills known vars, leaves unknown placeholders", () => {
+  const vars = { issue_id: "OPS-12", issue_title: "Fix login" };
+  assert.equal(renderTemplate("{{issue_id}}: {{issue_title}}", vars), "OPS-12: Fix login");
+  assert.equal(renderTemplate("[{{ issue_id }}] {{issue_title}}", vars), "[OPS-12] Fix login");
+  assert.equal(renderTemplate("{{issue_id}} {{unknown}}", vars), "OPS-12 {{unknown}}");
+});
+
+test("buildPrBody: includes the issue id", () => {
+  assert.match(buildPrBody("OPS-12"), /- Issue: OPS-12/);
+});
