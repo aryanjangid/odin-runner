@@ -1,8 +1,9 @@
 name: "Odin Runner"
-description: >-
-  Run an Odin-dispatched Claude Code job: install deps, run Claude, gate on the
-  repo's checks, open/update a draft PR, and report the outcome back to Odin.
+description: "Run an Odin-dispatched Claude Code job and report the result back to Odin."
 author: "Odin"
+branding:
+  icon: "git-pull-request"
+  color: "purple"
 
 inputs:
   anthropic_api_key:
