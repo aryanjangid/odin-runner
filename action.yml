@@ -50,6 +50,10 @@ runs:
         CONTINUATION_BRANCH: ${{ github.event.client_payload.continuation_branch || '' }}
         # Your odin.yml input wins; else the dispatch (project memory); else skip.
         INSTALL_CMD: ${{ inputs.install || github.event.client_payload.commands.install || '' }}
+        # Pasted Linear images: JSON manifest of { url, path } the pre-step downloads
+        # (auth-free Odin proxy URLs) to the local paths the prompt references. Odin
+        # already JSON-encodes this as a string, so reference it directly.
+        IMAGES_JSON: ${{ github.event.client_payload.images || '[]' }}
 
     # The actual Claude run stays on the stock upstream action.
     - name: Run Claude Code
