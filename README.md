@@ -63,33 +63,20 @@ For each command: the input wins if set, else the dispatch value, else the step
 is skipped. So you can leave them all out and nothing breaks — Claude is still
 told to self-check in the prompt.
 
-### Branch name
+### Branch name, commit message, PR title — automatic
 
-A fresh run's branch comes from **Linear's own branch name** (e.g.
-`naman/god-1483-fix-…`), sent in the dispatch — so the PR auto-links to the issue.
-If Linear's name is unavailable (e.g. a manual `workflow_dispatch`), it falls back
-to `<branch_prefix><issue>-<run>-<attempt>`, where `branch_prefix` is an input
-(default `odin/`, used as-is — `feature/` or `claude-` both work).
+These aren't configured here:
 
-### Commit message, PR title, PR body
+- **Branch name** comes from **Linear** (e.g. `naman/god-1483-fix-…`), so the PR
+  auto-links to the issue. Falls back to `odin/<issue>-<run>-<attempt>` only when
+  Linear's name is unavailable (e.g. a manual `workflow_dispatch`).
+- **Commit message / PR title / PR body** are written by **Claude**, following the
+  repo's `CLAUDE.md`/`AGENTS.md` (so a repo documenting Conventional Commits gets
+  `feat(hermes): add notification summary (GOD-1478)`). If Claude doesn't author
+  one, the default is `<issue>: <title>`.
 
-Resolved per-field in this order:
-
-1. **Agent-authored** — Claude reads the repo's `CLAUDE.md`/`AGENTS.md` and writes
-   `commitMessage` / `prTitle` / `prBody` into `.odin/result.json` (e.g. a
-   Conventional Commit like `feat(hermes): add notification summary (GOD-1478)`,
-   where the `feat`/scope depend on the change). This is the Odin prompt's job.
-2. **Per-repo template input** — `commit_message` / `pr_title` with `{{issue_id}}`,
-   `{{issue_title}}`, `{{job_id}}` placeholders:
-   ```yaml
-       with:
-         commit_message: "{{issue_id}} {{issue_title}}"
-         pr_title: "[{{issue_id}}] {{issue_title}}"
-   ```
-3. **Default** — `{{issue_id}}: {{issue_title}}`.
-
-So convention-heavy repos get an agent-written message; everyone else gets a clean
-default, with templates as a deterministic override in between.
+To change the commit/PR style, document it in the repo's `CLAUDE.md` — Claude
+follows it. There are no naming inputs to set.
 
 ## What it does
 

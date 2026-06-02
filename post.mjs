@@ -10,7 +10,6 @@ import { runShell } from "./lib/exec.mjs";
 import {
   buildPrBody,
   readResult,
-  renderTemplate,
   sendCallback,
   selectChecks,
   sanitizeBranchName,
@@ -71,32 +70,23 @@ async function main() {
   await configIdentity();
   const base = await defaultBranch();
 
-  const vars = {
-    issue_id: env.LINEAR_ISSUE_ID,
-    issue_title: env.LINEAR_ISSUE_TITLE,
-    job_id: env.JOB_ID,
-  };
-
   // Branch: a follow-up reuses its branch; a fresh run prefers Linear's own branch
-  // name (so the PR auto-links), else the prefix + generated name.
+  // name (so the PR auto-links), else a generated fallback.
   let branch;
   if (env.CONTINUATION_BRANCH) {
     branch = env.CONTINUATION_BRANCH;
   } else {
     branch =
       env.LINEAR_BRANCH_NAME ||
-      sanitizeBranchName(env.LINEAR_ISSUE_ID, env.RUN_ID, env.RUN_ATTEMPT, env.BRANCH_PREFIX || "odin/");
+      sanitizeBranchName(env.LINEAR_ISSUE_ID, env.RUN_ID, env.RUN_ATTEMPT);
     await checkoutNewBranch(branch);
   }
 
-  // Commit / PR title / PR body: the agent's convention-aware values (from
-  // .odin/result.json) win, else the per-repo input template, else the default.
-  const commitMessage =
-    text(result.commitMessage) ||
-    renderTemplate(env.COMMIT_MESSAGE || "{{issue_id}}: {{issue_title}}", vars);
-  const prTitle =
-    text(result.prTitle) ||
-    renderTemplate(env.PR_TITLE || "{{issue_id}}: {{issue_title}}", vars);
+  // Commit message / PR title / PR body: Claude authors them following the repo's
+  // CLAUDE.md (via .odin/result.json); otherwise a simple default.
+  const fallback = `${env.LINEAR_ISSUE_ID}: ${env.LINEAR_ISSUE_TITLE}`;
+  const commitMessage = text(result.commitMessage) || fallback;
+  const prTitle = text(result.prTitle) || fallback;
   const prBody = text(result.prBody) || buildPrBody(env.LINEAR_ISSUE_ID);
 
   await commitAll(commitMessage);

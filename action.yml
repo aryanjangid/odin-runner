@@ -36,19 +36,6 @@ inputs:
     description: "Test command for the pre-PR gate. Overrides the dispatch; skipped if blank."
     required: false
     default: ""
-  # Per-repo naming style. Templates support {{issue_id}}, {{issue_title}}, {{job_id}}.
-  branch_prefix:
-    description: "Prefix for new branches, used as-is (e.g. 'odin/', 'feature/', 'claude-')."
-    required: false
-    default: "odin/"
-  commit_message:
-    description: "Commit message template. Placeholders: {{issue_id}}, {{issue_title}}, {{job_id}}."
-    required: false
-    default: "{{issue_id}}: {{issue_title}}"
-  pr_title:
-    description: "PR title template. Placeholders: {{issue_id}}, {{issue_title}}, {{job_id}}."
-    required: false
-    default: "{{issue_id}}: {{issue_title}}"
 
 runs:
   using: "composite"
@@ -102,10 +89,6 @@ runs:
         READ_ONLY: ${{ contains(fromJSON('["inspect","review","check"]'), github.event.client_payload.mode) }}
         RUN_ID: ${{ github.run_id }}
         RUN_ATTEMPT: ${{ github.run_attempt }}
-        # Per-repo naming style (defaults applied by the action inputs).
-        BRANCH_PREFIX: ${{ inputs.branch_prefix }}
-        COMMIT_MESSAGE: ${{ inputs.commit_message }}
-        PR_TITLE: ${{ inputs.pr_title }}
         # Build/lint/test gate. Your odin.yml input wins; else the dispatch
         # (project memory); else the check is skipped.
         LINT_CMD: ${{ inputs.lint || github.event.client_payload.commands.lint || '' }}

@@ -5,7 +5,6 @@ import { test } from "node:test";
 import {
   buildCallbackPayload,
   buildPrBody,
-  renderTemplate,
   sanitizeBranchName,
   selectChecks,
   signBody,
@@ -65,22 +64,10 @@ test("selectChecks: keeps only configured, non-blank commands", () => {
   assert.deepEqual(selectChecks(), []);
 });
 
-test("sanitizeBranchName: lowercases, collapses, and trims", () => {
+test("sanitizeBranchName: lowercases, collapses, and trims (fallback only)", () => {
   assert.equal(sanitizeBranchName("OPS-12", "99", "1"), "odin/ops-12-99-1");
   assert.equal(sanitizeBranchName("Feat/AB 3!!", "7", "2"), "odin/feat-ab-3-7-2");
   assert.equal(sanitizeBranchName("--X--", "1", "1"), "odin/x-1-1");
-});
-
-test("sanitizeBranchName: honors a custom prefix exactly (slash or dash)", () => {
-  assert.equal(sanitizeBranchName("OPS-12", "9", "1", "feature/"), "feature/ops-12-9-1");
-  assert.equal(sanitizeBranchName("OPS-12", "9", "1", "claude-"), "claude-ops-12-9-1");
-});
-
-test("renderTemplate: fills known vars, leaves unknown placeholders", () => {
-  const vars = { issue_id: "OPS-12", issue_title: "Fix login" };
-  assert.equal(renderTemplate("{{issue_id}}: {{issue_title}}", vars), "OPS-12: Fix login");
-  assert.equal(renderTemplate("[{{ issue_id }}] {{issue_title}}", vars), "[OPS-12] Fix login");
-  assert.equal(renderTemplate("{{issue_id}} {{unknown}}", vars), "OPS-12 {{unknown}}");
 });
 
 test("buildPrBody: includes the issue id", () => {
