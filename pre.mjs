@@ -1,9 +1,12 @@
 // Pre-Claude step: validate the prompt, check out the continuation branch, and
 // install dependencies. Runs before claude-code-action. Any failure here exits
 // non-zero, so the action's `if: failure()` step reports "failed" to Odin.
+import { appendFileSync } from "node:fs";
+
 import { runShell } from "./lib/exec.mjs";
 import { continuationCheckout } from "./lib/git.mjs";
 import { downloadIssueImages } from "./lib/images.mjs";
+import { hasResumableSession } from "./lib/session.mjs";
 
 const env = process.env;
 
@@ -11,6 +14,19 @@ async function main() {
   // The prompt is required — fail fast (cheapest check first).
   if (!env.AGENT_PROMPT || !env.AGENT_PROMPT.trim()) {
     throw new Error("Missing agent_prompt. Trigger this workflow through Odin.");
+  }
+
+  // 1 Linear ticket = 1 Claude session. If the cache restored this ticket's prior
+  // session, tell the Claude step to `--continue` it (set as a step env the
+  // workflow appends to claude_args) so the agent keeps its understanding of the
+  // repo instead of re-exploring. Opportunistic — no session means a fresh run.
+  if (await hasResumableSession()) {
+    if (env.GITHUB_ENV) {
+      appendFileSync(env.GITHUB_ENV, "CLAUDE_RESUME_ARGS=--continue\n");
+    }
+    console.log("Found this ticket's Claude session — will --continue it.");
+  } else {
+    console.log("No prior Claude session for this ticket — starting fresh.");
   }
 
   // Pasted Linear images: download them to the local paths the prompt references

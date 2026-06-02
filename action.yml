@@ -41,6 +41,19 @@ inputs:
 runs:
   using: "composite"
   steps:
+    # Persist this ticket's Claude session across runs so a follow-up CONTINUES the
+    # same session (1 Linear ticket = 1 Claude session) instead of re-exploring the
+    # repo. Rolling key: each run writes a new immutable cache; restore-keys grabs
+    # the most recent for this issue. Misses (first run / ~7-day eviction) just
+    # start fresh — the full prompt still carries the context.
+    - name: Restore Claude session
+      uses: actions/cache@v4
+      with:
+        path: ~/.claude/projects
+        key: odin-claude-session-${{ github.event.client_payload.linear_issue_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          odin-claude-session-${{ github.event.client_payload.linear_issue_id }}-
+
     # Validate the prompt, check out the continuation branch, and install deps.
     - name: Prepare
       id: prepare
@@ -71,11 +84,14 @@ runs:
         # Model / max-turns / tools come from the workspace's Odin Agent settings
         # (the `agent` object in the dispatch). The values below are only the
         # fallback for manual workflow_dispatch runs.
+        # CLAUDE_RESUME_ARGS is "--continue" when pre.mjs found this ticket's
+        # restored session (else empty → fresh run). Keep it last so it wins.
         claude_args: |
           --model ${{ github.event.client_payload.agent.model || 'claude-sonnet-4-6' }}
           --max-turns ${{ github.event.client_payload.agent.max_turns || 40 }}
           --allowedTools "${{ github.event.client_payload.agent.allowed_tools || 'Read,Glob,Grep,LS,Edit,MultiEdit,Write,Bash' }}"
           --disallowedTools "${{ github.event.client_payload.agent.disallowed_tools || 'Task,TaskOutput,KillTask,WebFetch,Bash(curl *),Bash(wget *),Bash(rm *),Bash(git push *),Bash(gh *)' }}"
+          ${{ env.CLAUDE_RESUME_ARGS }}
 
     # Read the result, run the checks gate, open/update the PR, and report back.
     - name: Finalize
