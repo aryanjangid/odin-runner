@@ -4,10 +4,36 @@ import { test } from "node:test";
 
 import {
   buildCallbackPayload,
+  failureSummary,
   sanitizeBranchName,
   selectChecks,
   signBody,
 } from "../lib/odin.mjs";
+
+test("failureSummary: names the failed stage", () => {
+  assert.match(failureSummary({ PREPARE_OUTCOME: "failure" }), /Setup failed/);
+  assert.match(
+    failureSummary({ PREPARE_OUTCOME: "success", CLAUDE_OUTCOME: "failure" }),
+    /coding agent hit an error/,
+  );
+  assert.match(
+    failureSummary({
+      PREPARE_OUTCOME: "success",
+      CLAUDE_OUTCOME: "success",
+      FINALIZE_OUTCOME: "failure",
+    }),
+    /pre-PR checks/,
+  );
+  assert.match(failureSummary({}), /The run failed before finishing/);
+});
+
+test("buildCallbackPayload: carries runUrl from RUN_URL", () => {
+  const payload = buildCallbackPayload({
+    GITHUB_REPOSITORY: "acme/widgets",
+    RUN_URL: "https://github.com/acme/widgets/actions/runs/42",
+  });
+  assert.equal(payload.runUrl, "https://github.com/acme/widgets/actions/runs/42");
+});
 
 test("buildCallbackPayload: transport fields override what the agent wrote", () => {
   const env = {
