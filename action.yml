@@ -7,13 +7,17 @@ branding:
 
 inputs:
   anthropic_api_key:
-    description: "Anthropic API key for Claude."
-    required: true
+    description: >-
+      Anthropic API key for Claude. Optional: if blank, the runner borrows Odin's
+      shared key at run time (only when the repo is on Odin's admin allowlist).
+    required: false
+    default: ""
   callback_secret:
     description: >-
-      Shared secret used to HMAC-sign the result callback to Odin (must match
-      Odin's ODIN_CALLBACK_SECRET).
-    required: true
+      Shared secret used to HMAC-sign the result callback to Odin. Optional: if
+      blank, the runner fetches it from Odin's config broker.
+    required: false
+    default: ""
   callback_url:
     description: "Odin result callback URL. Defaults to the hosted orchestrator."
     required: false
@@ -68,13 +72,21 @@ runs:
         # (auth-free Odin proxy URLs) to the local paths the prompt references. Odin
         # already JSON-encodes this as a string, so reference it directly.
         IMAGES_JSON: ${{ github.event.client_payload.images || '[]' }}
+        # Credentials: if the repo set its own, pre.mjs uses them; otherwise it
+        # borrows from Odin's broker (shared key only for admin-approved repos) and
+        # exports RESOLVED_* for the later steps.
+        ANTHROPIC_API_KEY_INPUT: ${{ inputs.anthropic_api_key }}
+        CALLBACK_SECRET_INPUT: ${{ inputs.callback_secret }}
+        CALLBACK_URL: ${{ inputs.callback_url || 'https://odin-orchestrator.up.railway.app/api/agent-result' }}
+        JOB_ID: ${{ github.event.client_payload.job_id || '' }}
 
     # The actual Claude run stays on the stock upstream action.
     - name: Run Claude Code
       id: claude
       uses: anthropics/claude-code-action@v1
       with:
-        anthropic_api_key: ${{ inputs.anthropic_api_key }}
+        # Repo's own key, else Odin's shared key resolved by pre.mjs.
+        anthropic_api_key: ${{ inputs.anthropic_api_key || env.RESOLVED_ANTHROPIC_KEY }}
         github_token: ${{ github.token }}
         # Odin dispatches as a GitHub App (a Bot actor), which claude-code-action
         # blocks by default. Allow all bots since only Odin can fire this event.
@@ -101,7 +113,7 @@ runs:
       env:
         GH_TOKEN: ${{ github.token }}
         CALLBACK_URL: ${{ inputs.callback_url || 'https://odin-orchestrator.up.railway.app/api/agent-result' }}
-        CALLBACK_SECRET: ${{ inputs.callback_secret }}
+        CALLBACK_SECRET: ${{ inputs.callback_secret || env.RESOLVED_CALLBACK_SECRET }}
         JOB_ID: ${{ github.event.client_payload.job_id || '' }}
         LINEAR_ISSUE_ID: ${{ github.event.client_payload.linear_issue_id || github.event.inputs.linear_issue_id }}
         LINEAR_ISSUE_TITLE: ${{ github.event.client_payload.linear_issue_title || github.event.inputs.linear_issue_title }}
@@ -127,7 +139,7 @@ runs:
       run: node "${{ github.action_path }}/lib/report-failure.mjs"
       env:
         CALLBACK_URL: ${{ inputs.callback_url || 'https://odin-orchestrator.up.railway.app/api/agent-result' }}
-        CALLBACK_SECRET: ${{ inputs.callback_secret }}
+        CALLBACK_SECRET: ${{ inputs.callback_secret || env.RESOLVED_CALLBACK_SECRET }}
         JOB_ID: ${{ github.event.client_payload.job_id || '' }}
         LINEAR_ISSUE_ID: ${{ github.event.client_payload.linear_issue_id || github.event.inputs.linear_issue_id }}
         MODE: ${{ github.event.client_payload.mode || 'implement' }}
