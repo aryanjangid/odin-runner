@@ -37,7 +37,6 @@ jobs:
       - uses: <your-account>/odin-runner@v2
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          callback_secret: ${{ secrets.ODIN_CALLBACK_SECRET }}
           callback_url: ${{ secrets.ODIN_CALLBACK_URL }}
 ```
 
@@ -70,7 +69,8 @@ follows it. There are no naming inputs to set.
 | Finalize | `post.mjs` | read result → branch on mode → commit/**push branch** → report to Odin |
 | Report failure | `lib/report-failure.mjs` | `if: failure()` catch-all → tell Odin "failed" |
 
-Mode handling (from `client_payload.mode`):
+Mode handling (from `client_payload.odin.mode`, with old top-level payloads
+still accepted for compatibility):
 
 - `needs_clarification` → report, no PR
 - `inspect` / `verify` (read-only) → report answer/findings, no PR
@@ -86,8 +86,9 @@ PR** with the GitHub App installation token, in the result callback. This is
 deliberate: creating a PR via the **App** isn't subject to the repo's *"Allow
 GitHub Actions to create and approve pull requests"* setting — so onboarding a new
 repo/org needs only the App installed, no Actions permission to flip. The runner
-reports the pushed `branch` + `base`; the agent's `prTitle`/`prBody` ride along in
-the result.
+reports the pushed `branch` + `base`; `base` comes from Odin's repo route base
+branch setting and falls back to `main`. The agent's `prTitle`/`prBody` ride along
+in the result.
 
 ## Design notes
 

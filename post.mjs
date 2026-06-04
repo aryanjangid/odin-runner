@@ -15,7 +15,6 @@ import {
   checkoutNewBranch,
   commitAll,
   configIdentity,
-  defaultBranch,
   hasChanges,
   pushBranch,
 } from "./lib/git.mjs";
@@ -52,7 +51,7 @@ async function main() {
   // no-change check below (target repos don't gitignore .odin/).
   rmSync(".odin", { recursive: true, force: true });
 
-  const base = await defaultBranch();
+  const base = text(env.BASE_BRANCH) || "main";
 
   if (!(await hasChanges())) {
     // A follow-up already applied is a graceful no-op, not a failure — Odin keeps

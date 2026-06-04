@@ -37,6 +37,7 @@ async function resolveCredentials() {
     config = await fetchRunnerConfig(
       brokerUrlFromCallback(env.CALLBACK_URL),
       env.JOB_ID,
+      env.RUNNER_CONFIG_TOKEN,
     );
   } catch (error) {
     throw new Error(`Could not reach Odin for run config: ${error.message}`);
