@@ -22,26 +22,6 @@ inputs:
     description: "Odin result callback URL. Defaults to the hosted orchestrator."
     required: false
     default: "https://odin-orchestrator.up.railway.app/api/agent-result"
-  # This repo's commands. Each OVERRIDES what Odin sends from the route's project
-  # memory; left blank, it falls back to the dispatch, and if that's blank too the
-  # step is skipped. install runs before Claude; lint/build/test are the pre-PR gate.
-  install:
-    description: "Install command, e.g. 'npm ci'. Overrides the dispatch; skipped if blank."
-    required: false
-    default: ""
-  lint:
-    description: "Lint command for the pre-PR gate. Overrides the dispatch; skipped if blank."
-    required: false
-    default: ""
-  build:
-    description: "Build command for the pre-PR gate. Overrides the dispatch; skipped if blank."
-    required: false
-    default: ""
-  test:
-    description: "Test command for the pre-PR gate. Overrides the dispatch; skipped if blank."
-    required: false
-    default: ""
-
 runs:
   using: "composite"
   steps:
@@ -54,11 +34,11 @@ runs:
       uses: actions/cache@v4
       with:
         path: ~/.claude/projects
-        key: odin-claude-session-${{ github.event.client_payload.linear_issue_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+        key: odin-claude-session-${{ github.event.client_payload.linear_issue_id || github.event.inputs.linear_issue_id || github.run_id }}-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
-          odin-claude-session-${{ github.event.client_payload.linear_issue_id }}-
+          odin-claude-session-${{ github.event.client_payload.linear_issue_id || github.event.inputs.linear_issue_id || github.run_id }}-
 
-    # Validate the prompt, check out the continuation branch, and install deps.
+    # Validate the prompt and check out the continuation branch.
     - name: Prepare
       id: prepare
       shell: bash
@@ -66,8 +46,6 @@ runs:
       env:
         AGENT_PROMPT: ${{ github.event.client_payload.agent_prompt || github.event.inputs.agent_prompt }}
         CONTINUATION_BRANCH: ${{ github.event.client_payload.continuation_branch || '' }}
-        # Your odin.yml input wins; else the dispatch (project memory); else skip.
-        INSTALL_CMD: ${{ inputs.install || github.event.client_payload.commands.install || '' }}
         # Pasted Linear images: JSON manifest of { url, path } the pre-step downloads
         # (auth-free Odin proxy URLs) to the local paths the prompt references. Odin
         # already JSON-encodes this as a string, so reference it directly.
@@ -105,7 +83,7 @@ runs:
           --disallowedTools "${{ github.event.client_payload.agent.disallowed_tools || 'Task,TaskOutput,KillTask,WebFetch,Bash(curl *),Bash(wget *),Bash(rm *),Bash(git push *),Bash(gh *)' }}"
           ${{ env.CLAUDE_RESUME_ARGS }}
 
-    # Read the result, run the checks gate, open/update the PR, and report back.
+    # Read the result, push/update the PR branch, and report back.
     - name: Finalize
       id: finalize
       shell: bash
@@ -121,17 +99,12 @@ runs:
         # Linear's canonical branch name for fresh runs (so the PR auto-links).
         LINEAR_BRANCH_NAME: ${{ github.event.client_payload.linear_branch_name || '' }}
         MODE: ${{ github.event.client_payload.mode || 'implement' }}
-        # Read-only modes (inspect/review/check) investigate and report, no PR.
-        READ_ONLY: ${{ contains(fromJSON('["inspect","review","check"]'), github.event.client_payload.mode) }}
+        # Read-only modes investigate and report, no PR.
+        READ_ONLY: ${{ contains(fromJSON('["inspect","verify"]'), github.event.client_payload.mode) }}
         RUN_ID: ${{ github.run_id }}
         RUN_ATTEMPT: ${{ github.run_attempt }}
-        # Build/lint/test gate. Your odin.yml input wins; else the dispatch
-        # (project memory); else the check is skipped.
-        LINT_CMD: ${{ inputs.lint || github.event.client_payload.commands.lint || '' }}
-        BUILD_CMD: ${{ inputs.build || github.event.client_payload.commands.build || '' }}
-        TEST_CMD: ${{ inputs.test || github.event.client_payload.commands.test || '' }}
 
-    # Any failure above (Prepare, Claude, checks, push) tells Odin so the session
+    # Any failure above (Prepare, Claude, push) tells Odin so the session
     # resolves instead of hanging. Single callback — post.mjs never self-reports.
     - name: Report failure to Odin
       if: failure()

@@ -6,7 +6,6 @@ import {
   buildCallbackPayload,
   failureSummary,
   sanitizeBranchName,
-  selectChecks,
   signBody,
 } from "../lib/odin.mjs";
 
@@ -22,7 +21,7 @@ test("failureSummary: names the failed stage", () => {
       CLAUDE_OUTCOME: "success",
       FINALIZE_OUTCOME: "failure",
     }),
-    /pre-PR checks/,
+    /branch push/,
   );
   assert.match(failureSummary({}), /The run failed before finishing/);
 });
@@ -59,10 +58,10 @@ test("buildCallbackPayload: transport fields override what the agent wrote", () 
 });
 
 test("buildCallbackPayload: read-only result falls back to the agent's status", () => {
-  const env = { GITHUB_REPOSITORY: "a/b", MODE: "review" };
+  const env = { GITHUB_REPOSITORY: "a/b", MODE: "verify" };
   const payload = buildCallbackPayload(env, { status: "completed", findings: [{ note: "x" }] });
   assert.equal(payload.status, "completed");
-  assert.equal(payload.mode, "review");
+  assert.equal(payload.mode, "verify");
   assert.equal(payload.findings.length, 1);
 });
 
@@ -82,12 +81,6 @@ test("signBody: different secrets produce different signatures", () => {
   assert.notEqual(signBody("body", "s1"), signBody("body", "s2"));
 });
 
-test("selectChecks: keeps only configured, non-blank commands", () => {
-  const checks = selectChecks({ lint: "npm run lint", build: "", test: "  " });
-  assert.deepEqual(checks, [{ name: "lint", cmd: "npm run lint" }]);
-  assert.deepEqual(selectChecks({}), []);
-  assert.deepEqual(selectChecks(), []);
-});
 
 test("sanitizeBranchName: lowercases, collapses, and trims (fallback only)", () => {
   assert.equal(sanitizeBranchName("OPS-12", "99", "1"), "odin/ops-12-99-1");

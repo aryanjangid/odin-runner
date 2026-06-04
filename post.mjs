@@ -1,16 +1,14 @@
 // Post-Claude step: read the agent result, then branch on mode —
 //   needs_clarification -> report, no PR
-//   read-only (inspect/review/check) -> report answer/findings/checks, no PR
-//   write (implement/revise) -> enforced checks gate, then commit/push/open-or-update PR
+//   read-only (inspect/verify) -> report answer/findings, no PR
+//   write (implement/revise) -> commit/push branch; Odin watches repo CI
 // On any internal error this exits non-zero WITHOUT reporting, so the action's
 // `if: failure()` step reports a single "failed" to Odin (no double callback).
 import { rmSync } from "node:fs";
 
-import { runShell } from "./lib/exec.mjs";
 import {
   readResult,
   sendCallback,
-  selectChecks,
   sanitizeBranchName,
 } from "./lib/odin.mjs";
 import {
@@ -41,17 +39,15 @@ async function main() {
     return;
   }
 
-  // 2. Read-only modes — report the answer/findings/checks the agent wrote.
+  // 2. Read-only modes — report the answer/findings the agent wrote.
   if (readOnly) {
     await sendCallback(env, result);
     return;
   }
 
-  // 3. Write modes: enforced quality gate, then commit + push. Odin's server opens
+  // 3. Write modes: commit + push. Odin's server opens
   // the draft PR with the GitHub App token (so PR creation never depends on the
   // repo's Actions "create and approve pull requests" permission).
-  await runChecks();
-
   // Drop Odin's scratch dir so it never lands in the PR and doesn't mask the
   // no-change check below (target repos don't gitignore .odin/).
   rmSync(".odin", { recursive: true, force: true });
@@ -86,8 +82,9 @@ async function main() {
     await checkoutNewBranch(branch);
   }
 
-  // Commit message: Claude authors it (.odin/result.json) following CLAUDE.md, else
-  // a default. The PR title/body ride along in `result` for the server to apply.
+  // Commit message: Claude authors it in .odin/result.json after reading the
+  // repo's conventions. The fallback is defensive only; repos may enforce this
+  // in CI. The PR title/body ride along in `result` for Odin's server to apply.
   const commitMessage =
     text(result.commitMessage) || `${env.LINEAR_ISSUE_ID}: ${env.LINEAR_ISSUE_TITLE}`;
 
@@ -96,35 +93,6 @@ async function main() {
 
   // Report the pushed branch; Odin's server opens/updates the draft PR.
   await sendCallback({ ...env, STATUS: "completed" }, result, { branch, base });
-}
-
-// Enforced build/lint/test gate, mirroring the persistent worker. Runs every
-// configured check so all failures are visible, then throws if any failed.
-async function runChecks() {
-  const checks = selectChecks({
-    lint: env.LINT_CMD,
-    build: env.BUILD_CMD,
-    test: env.TEST_CMD,
-  });
-  if (!checks.length) {
-    console.log("No repository checks configured; skipping gate.");
-    return;
-  }
-
-  const failed = [];
-  for (const { name, cmd } of checks) {
-    console.log(`::group::${name}: ${cmd}`);
-    try {
-      await runShell(cmd);
-    } catch {
-      failed.push(name);
-      console.log(`::error::${name} check failed: ${cmd}`);
-    }
-    console.log("::endgroup::");
-  }
-  if (failed.length) {
-    throw new Error(`Repository checks failed: ${failed.join(", ")}`);
-  }
 }
 
 main().catch((error) => {

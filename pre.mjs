@@ -1,9 +1,8 @@
-// Pre-Claude step: validate the prompt, check out the continuation branch, and
-// install dependencies. Runs before claude-code-action. Any failure here exits
-// non-zero, so the action's `if: failure()` step reports "failed" to Odin.
+// Pre-Claude step: validate the prompt and check out the continuation branch.
+// Any failure here exits non-zero, so the action's `if: failure()` step reports
+// "failed" to Odin.
 import { appendFileSync } from "node:fs";
 
-import { runShell } from "./lib/exec.mjs";
 import { continuationCheckout } from "./lib/git.mjs";
 import { downloadIssueImages } from "./lib/images.mjs";
 import {
@@ -100,15 +99,6 @@ async function main() {
   if (env.CONTINUATION_BRANCH) {
     console.log(`Checking out continuation branch ${env.CONTINUATION_BRANCH}.`);
     await continuationCheckout(env.CONTINUATION_BRANCH);
-  }
-
-  // Install dependencies (the repo's command from its Odin route project memory).
-  // Skipped when unset — some repos need no install.
-  if (env.INSTALL_CMD && env.INSTALL_CMD.trim()) {
-    console.log(`Installing dependencies: ${env.INSTALL_CMD}`);
-    await runShell(env.INSTALL_CMD);
-  } else {
-    console.log("No install command configured; skipping.");
   }
 }
 
